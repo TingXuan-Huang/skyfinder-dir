@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.conda/
+# data + outputs (rebuilt by data/*.py on the server; never committed)
+data/images/
+data/*.csv
+data/*.parquet
+data/splits/
+results/
+*.pt
+slurm/logs/
+.DS_Store
