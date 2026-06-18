@@ -1,0 +1,34 @@
+project_root: "."
+
+paths:
+  labels: "data/labels_with_images.csv"
+  splits: "data/splits/random_5fold.json"   # RANDOM control — run `python data/splits_random.py` first
+  images: "data/images"
+  results: "results_random"                  # separate dir; don't mix with the LOCO sweep
+
+save: true
+skip_existing: true
+
+experiments:
+  # Random-split CONTROL (report Analysis #8): if val ~= test HERE but val << test under
+  # LOCO, the LOCO gap is camera-shift, not sample variance. Baselines only — that's enough
+  # to read the val/test gap; no LDS/FDS needed for the control.
+  - name: "baseline_resnet50_rand"
+    model: "resnet50"
+    folds: [0, 1, 2, 3, 4]
+    epochs: 50
+    batch_size: 128
+    lr: 0.001
+    num_workers: 4
+    seed: 0
+    run_name_template: "baseline_resnet50_rand_fold{fold}"
+
+  - name: "baseline_vit_rand"
+    model: "vit_b_16"
+    folds: [0, 1, 2, 3, 4]
+    epochs: 50
+    batch_size: 128
+    lr: 0.001
+    num_workers: 4
+    seed: 0
+    run_name_template: "baseline_vit_rand_fold{fold}"
