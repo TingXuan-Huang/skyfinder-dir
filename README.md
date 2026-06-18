@@ -51,6 +51,16 @@ bash submit_sweep.sh 2
 python run_baselines.py --config configs/main.yaml
 ```
 
+## Hyak
+
+For UW Hyak Klone, use the Slurm/Conda flow in `HYAK.md`. In short: link the
+existing prepared data into `data/`, submit `slurm/setup_env.slurm` once to build
+`./.conda/skyfinder` on a compute node, run `bash submit_sweep.sh 1 configs/smoke.yaml`
+for a small GPU smoke test, then submit `configs/main.yaml`. If a job completes
+training but fails during final JSON serialization, use
+`recover_results_from_last.py` or `slurm/recover_json_cpu.slurm` to rebuild the
+results JSON from `<run_name>_last.pt` without retraining.
+
 ## Status
 
 - Training package: complete, verified.

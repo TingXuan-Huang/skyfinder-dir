@@ -54,12 +54,33 @@ def find_artifact(run_name: str, suffix: str, results_dir: Path) -> Path | None:
 # Results JSON (config + history + metrics + val preds)
 # ============================================================
 
+def _json_default(obj):
+    """Convert common training objects into JSON-safe values."""
+    if isinstance(obj, Path):
+        return str(obj)
+
+    try:
+        import numpy as np
+
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, np.generic):
+            return obj.item()
+    except ImportError:
+        pass
+
+    if torch.is_tensor(obj):
+        return obj.detach().cpu().tolist()
+
+    raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
+
+
 def save_results(results: dict, results_dir: Path | None = None) -> Path:
     base = results_dir if results_dir is not None else RESULTS_DIR
     out_dir = base / subdir_for(results["run_name"])
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"{results['run_name']}.json"
-    path.write_text(json.dumps(results, indent=2))
+    path.write_text(json.dumps(results, indent=2, default=_json_default))
     print(f"[saved] {path}")
     return path
 

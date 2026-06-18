@@ -3,9 +3,11 @@ __pycache__/
 *.egg-info/
 .conda/
 # data + outputs (rebuilt by data/*.py on the server; never committed)
+data/images
 data/images/
 data/*.csv
 data/*.parquet
+data/splits
 data/splits/
 results/
 *.pt

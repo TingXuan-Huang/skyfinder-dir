@@ -1,0 +1,24 @@
+project_root: "."
+
+paths:
+  labels: "data/labels_with_images.csv"
+  splits: "data/splits/loco_5fold.json"
+  images: "data/images"
+  results: "results"
+
+save: true
+skip_existing: false
+
+experiments:
+  - name: "smoke_resnet50"
+    model: "resnet50"
+    folds: [0]
+    epochs: 1
+    batch_size: 32
+    lr: 0.001
+    num_workers: 2
+    train_subset: 256
+    val_subset: 64
+    seed: 0
+    snapshot_every: 0
+    run_name_template: "smoke_resnet50_fold{fold}"
