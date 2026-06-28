@@ -1,5 +1,5 @@
 #!/bin/bash
-# Five-fold image/metadata fusion, reusing saved CNN checkpoints.
+# Frozen DINOv2 linear probe (RidgeCV) over the five LOCO folds; no training.
 #SBATCH --job-name=skydino
 #SBATCH --nodes=1
 #SBATCH --ntasks=1

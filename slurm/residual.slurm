@@ -1,5 +1,5 @@
 #!/bin/bash
-# Five-fold image/metadata fusion, reusing saved CNN checkpoints.
+# Residual-to-climatology probe (metadata prior + frozen DINOv2) over five LOCO folds.
 #SBATCH --job-name=skyresid
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
