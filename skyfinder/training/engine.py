@@ -4,11 +4,22 @@ This is the standard PyTorch "engine" file: one function per training-loop primi
 """
 from __future__ import annotations
 
+import random
+
 import numpy as np
 import torch
 from tqdm import tqdm
 
 from .lds import weighted_l1_loss
+
+
+def seed_everything(seed: int) -> None:
+    """Seed Python, NumPy, and Torch RNGs for repeatable experiment starts."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
 
 def get_device() -> str:

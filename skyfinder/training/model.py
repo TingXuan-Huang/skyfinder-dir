@@ -1,4 +1,4 @@
-"""Model factories: `build_model` and the FDS-wrapped variant `FDSModel`.
+"""Model factories and the FDS-wrapped variant `FDSModel`.
 
 `build_model` returns a fresh ResNet-50 or ViT-B/16 with a 1-output regression head.
 `FDSModel` wraps a vanilla model with an FDS calibration module between backbone
@@ -6,16 +6,18 @@ and head — see the `FDS` class in `skyfinder.training.fds`.
 """
 from __future__ import annotations
 
+import numpy as np
 import torch
 import torch.nn as nn
 from torchvision.models import (ResNet50_Weights, ViT_B_16_Weights, resnet50,
                                 vit_b_16)
 
+from .config import Config
 from .fds import FDS
 from .lds import MIN_TEMP
 
 
-def build_model(name: str, freeze_backbone: bool = False) -> nn.Module:
+def build_model(name: str, freeze_backbone: bool = False, *, pretrained: bool = True) -> nn.Module:
     """Build a fresh model with our 1-output regression head.
 
     `freeze_backbone` (D4 linear probe): freezes all pretrained params, then
@@ -23,20 +25,51 @@ def build_model(name: str, freeze_backbone: bool = False) -> nn.Module:
     so it stays trainable by default — no name-matching needed downstream.
     """
     if name == "resnet50":
-        m = resnet50(weights=ResNet50_Weights.IMAGENET1K_V2)
+        weights = ResNet50_Weights.IMAGENET1K_V2 if pretrained else None
+        m = resnet50(weights=weights)
         if freeze_backbone:
             for p in m.parameters():
                 p.requires_grad_(False)
         m.fc = nn.Linear(m.fc.in_features, 1)
         return m
     if name == "vit_b_16":
-        m = vit_b_16(weights=ViT_B_16_Weights.IMAGENET1K_V1)
+        weights = ViT_B_16_Weights.IMAGENET1K_V1 if pretrained else None
+        m = vit_b_16(weights=weights)
         if freeze_backbone:
             for p in m.parameters():
                 p.requires_grad_(False)
         m.heads.head = nn.Linear(m.heads.head.in_features, 1)
         return m
     raise ValueError(f"unknown model: {name}")
+
+
+def build_training_model(cfg: Config, *, pretrained: bool = True) -> nn.Module:
+    """Build the exact vanilla or FDS architecture described by ``cfg``.
+
+    Set ``pretrained=False`` when reconstructing an architecture solely to load
+    a checkpoint. This avoids a needless model-weight download on inference
+    nodes and makes loading possible without a populated Torch cache.
+    """
+    vanilla = build_model(
+        cfg.model,
+        freeze_backbone=cfg.freeze_backbone,
+        pretrained=pretrained,
+    )
+    if not cfg.use_fds:
+        return vanilla
+
+    feature_dim = 2048 if cfg.model == "resnet50" else 768
+    bucket_num = int(np.ceil((55.0 - MIN_TEMP) / cfg.bin_width))
+    fds = FDS(
+        feature_dim=feature_dim,
+        bucket_num=bucket_num,
+        kernel=cfg.fds_kernel,
+        ks=cfg.fds_ks,
+        sigma=cfg.fds_sigma,
+        momentum=cfg.fds_momentum,
+        start_smooth=cfg.fds_start_smooth,
+    )
+    return FDSModel(vanilla, fds, bin_width=cfg.bin_width, min_temp=MIN_TEMP)
 
 
 class FDSModel(nn.Module):

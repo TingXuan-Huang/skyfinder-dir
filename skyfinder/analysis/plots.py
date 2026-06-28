@@ -18,7 +18,7 @@ import numpy as np
 
 from skyfinder.analysis.aggregate import BINS, build_table, summarize
 
-KIND_ORDER = ["baseline", "lds", "fds", "lds_fds"]
+KIND_ORDER = ["baseline", "lds", "fds", "lds_fds", "cam_conditioned"]
 
 
 def plot_per_bin(tbl, model: str, split: str, out_path):

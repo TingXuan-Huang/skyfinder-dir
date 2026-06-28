@@ -1,0 +1,20 @@
+
+IMDB-WIKI  (%-improvement vs baseline; + = better)
+  method   overall     many   medium      few
+  lds        +2.9%    -1.1%   +17.8%   +14.5%
+  fds        +2.6%    +0.7%   +11.7%    +8.4%
+  lds_fds    +3.5%    +0.4%   +16.6%   +15.7%
+
+AgeDB  (%-improvement vs baseline; + = better)
+  method   overall     many   medium      few
+  lds        +1.3%    -5.4%    +7.2%   +20.3%
+  fds        +2.8%    +1.8%    +6.1%    +4.8%
+  lds_fds    +2.8%    -5.9%   +13.7%   +21.1%
+
+SkyFinder vit_b_16 (test)  (%-improvement vs baseline; + = better)
+  method   overall     many   medium      few
+  lds        -5.8%    -6.4%    +9.7%   +15.1%
+  fds        +2.3%    +2.1%    +5.5%    +4.1%
+  lds_fds    -9.4%    -9.5%    +0.9%    -1.8%
+
+Read: does the tail (Medium/Few) direction match the paper? Does Overall flip sign?

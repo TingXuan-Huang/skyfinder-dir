@@ -37,6 +37,7 @@ module load conda
 CONDA_BASE="$(conda info --base)"
 source "${CONDA_BASE}/etc/profile.d/conda.sh"
 
+FRESH_ENV=0
 if [[ ! -d "${ENV_PREFIX}" ]]; then
   if [[ -d "${SETUP_CLONE_FROM}" ]]; then
     echo "[setup] cloning existing package env: ${SETUP_CLONE_FROM}"
@@ -44,11 +45,19 @@ if [[ ! -d "${ENV_PREFIX}" ]]; then
   else
     echo "[setup] no clone source found; creating env from package indexes"
     conda create --yes --prefix "${ENV_PREFIX}" python=3.11
+    FRESH_ENV=1
   fi
 fi
 
 conda activate "${ENV_PREFIX}"
 python -m pip install --upgrade pip wheel setuptools
+if [[ "${FRESH_ENV}" == "1" ]]; then
+  # A fresh Python environment has none of the project dependencies. This may
+  # require an enabled package index or a populated pip cache on the compute node.
+  python -m pip install -e .
+else
+  python -m pip install --no-deps -e .
+fi
 python - <<'PY'
 missing = []
 for mod in ("torch", "torchvision", "numpy", "pandas", "yaml", "sklearn", "scipy", "pyarrow"):
@@ -59,7 +68,6 @@ for mod in ("torch", "torchvision", "numpy", "pandas", "yaml", "sklearn", "scipy
 if missing:
     raise SystemExit("[setup] missing required packages after env creation: " + ", ".join(missing))
 PY
-python -m pip install --no-deps -e .
 
 if [[ "${PREFETCH_WEIGHTS:-1}" == "1" ]]; then
   python - <<'PY'

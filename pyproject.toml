@@ -23,5 +23,21 @@ dependencies = [
     "pyarrow>=12",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
 [tool.setuptools.packages.find]
 include = ["skyfinder*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["F", "I", "UP", "B"]

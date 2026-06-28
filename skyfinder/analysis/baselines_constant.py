@@ -5,11 +5,8 @@ Three predictors, fit on each fold's train slice, evaluated on val + test:
   - per_cam_mean       : groupby CamId  -> mean(TempM); fall back to global
   - per_cam_month_mean : groupby (CamId, Month) -> mean(TempM); falls back per-cam, then global
 
-Output: `<baselines_constant_path>` (from config) with `per_fold` rows shaped like
-C2's, so `analysis/aggregate.py` ingests them with the same code path.
-
-All paths come from `config` (loaded from `analysis_config.yaml`); only the
-per-bin MAE helper is imported from `dir_skyfinder.baseline` (code, not config).
+Output: `<baselines_constant_path>` (from config) with one `per_fold` metric
+record per predictor. `analysis.aggregate` reads this compact baseline schema.
 """
 from __future__ import annotations
 
@@ -20,6 +17,7 @@ import numpy as np
 import pandas as pd
 
 from skyfinder.training.engine import per_bin_mae
+from skyfinder.training.splits import load_splits
 
 
 PREDICTORS = ("global_mean", "per_cam_mean", "per_cam_month_mean")
@@ -55,7 +53,7 @@ def _fit_predict(train_df: pd.DataFrame, kind: str):
 def run_baselines_constant(config: dict, out_path: Path | str | None = None) -> dict:
     """Compute the 3 constant predictors per fold; write JSON.
 
-    `config` is the loaded `configs/analysis.yaml`. `out_path` overrides
+    `config` supplies the input/output paths. `out_path` overrides
     `config["baselines_constant_path"]` if given.
 
     Historical note: this was the "C1" ablation in `docs/ablation_catalog.md`.
@@ -65,9 +63,10 @@ def run_baselines_constant(config: dict, out_path: Path | str | None = None) -> 
     out_path = Path(out_path) if out_path is not None else Path(config["baselines_constant_path"])
 
     df = pd.read_csv(labels_path)
-    splits = json.loads(splits_path.read_text())
+    splits = load_splits(splits_path, labels_path, len(df))
 
-    results: dict = {"per_fold": [], "predictors": list(PREDICTORS)}
+    results: dict = {"method": "c1_constants", "bin_width": 1.0,
+                     "per_fold": [], "predictors": list(PREDICTORS)}
     for f in splits:
         fold = f["fold"]
         train_df = df.iloc[f["train"]]

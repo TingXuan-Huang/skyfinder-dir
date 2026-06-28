@@ -8,28 +8,27 @@ Usage:
     from skyfinder.training.trainer import run_baseline
     results = run_baseline(model="resnet50", epochs=20)
 
-For YAML-driven experiment runs, use `skyfinder train --family X` (see `skyfinder.cli`).
+For YAML-driven experiment runs, use `python run_sweep.py --config <config.yaml>`.
 """
 from __future__ import annotations
 
 import time
+import random
 from dataclasses import asdict, replace
 from datetime import datetime
 
 import numpy as np
 import torch
 
-from . import config as cfg_module
 from .checkpoint import (load_training_state, save_model_weights,
                                             save_results, save_training_state,
                                             subdir_for)
 from .config import Config
 from .dataloader import build_loaders
-from .engine import (get_device, per_bin_mae, predict_split,
+from .engine import (get_device, per_bin_mae, predict_split, seed_everything,
                                         train_one_epoch)
-from .fds import FDS
-from .lds import MIN_TEMP, compute_lds_weights
-from .model import FDSModel, build_model
+from .lds import compute_lds_weights
+from .model import build_training_model
 
 
 def run_baseline(cfg: Config | None = None, save: bool = True, **kwargs) -> dict:
@@ -49,16 +48,13 @@ def run_baseline(cfg: Config | None = None, save: bool = True, **kwargs) -> dict
         cfg = replace(cfg, run_name=f"{cfg.model}_fold{cfg.fold}_ep{cfg.epochs}_"
                                     f"{datetime.now():%Y%m%d_%H%M%S}")
 
-    torch.manual_seed(cfg.seed)
-    np.random.seed(cfg.seed)
+    seed_everything(cfg.seed)
 
     device = get_device()
     print(f"[env] device={device}  run={cfg.run_name}")
     print(f"[cfg] {asdict(cfg)}")
 
-    # --- Build loaders first (applies F-family corruption to train labels if
-    # cfg.corruption is set), then compute LDS weights from the resulting train_df
-    # so bin frequencies reflect the post-corruption distribution. ---
+    # --- Build loaders first, then compute LDS weights from the exact train slice. ---
     train_loader, val_loader, train_df, val_df = build_loaders(cfg)
     print(f"[data] train={len(train_df):,}  val={len(val_df):,}")
 
@@ -76,21 +72,10 @@ def run_baseline(cfg: Config | None = None, save: bool = True, **kwargs) -> dict
               f"max={train_weights.max():.3f}  mean={train_weights.mean():.3f}")
 
     # --- Model: vanilla or FDS-wrapped ---
-    vanilla = build_model(cfg.model, freeze_backbone=cfg.freeze_backbone)
+    net = build_training_model(cfg).to(device)
     if cfg.use_fds:
-        feature_dim = 2048 if cfg.model == "resnet50" else 768
-        bucket_num = int(np.ceil((55.0 - MIN_TEMP) / cfg.bin_width))
-        fds_module = FDS(
-            feature_dim=feature_dim,
-            bucket_num=bucket_num,
-            kernel=cfg.fds_kernel, ks=cfg.fds_ks, sigma=cfg.fds_sigma,
-            momentum=cfg.fds_momentum, start_smooth=cfg.fds_start_smooth,
-        )
-        net = FDSModel(vanilla, fds_module,
-                       bin_width=cfg.bin_width, min_temp=MIN_TEMP).to(device)
-        print(f"[fds] wrapped {cfg.model} with FDS (feature_dim={feature_dim}, buckets={bucket_num})")
-    else:
-        net = vanilla.to(device)
+        print(f"[fds] wrapped {cfg.model} with FDS "
+              f"(feature_dim={net.fds.feature_dim}, buckets={net.fds.bucket_num})")
 
     trainable = [p for p in net.parameters() if p.requires_grad]
     if cfg.freeze_backbone:
@@ -111,7 +96,7 @@ def run_baseline(cfg: Config | None = None, save: bool = True, **kwargs) -> dict
     val_ys: np.ndarray | None = None
 
     # --- Resume from <run_name>_last.pt if it exists (Hyak preempt-safe) ---
-    resume = load_training_state(cfg.run_name) if save else None
+    resume = load_training_state(cfg.run_name, cfg.results_dir) if save else None
     if resume is not None:
         print(f"[resume] found {cfg.run_name}_last.pt — continuing from epoch {resume['epoch'] + 1}")
         net.load_state_dict(resume["model"])
@@ -119,6 +104,10 @@ def run_baseline(cfg: Config | None = None, save: bool = True, **kwargs) -> dict
         sched.load_state_dict(resume["scheduler"])
         torch.set_rng_state(resume["torch_rng"])
         np.random.set_state(resume["np_rng"])
+        if "python_rng" in resume:
+            random.setstate(resume["python_rng"])
+        if torch.cuda.is_available() and resume.get("cuda_rng") is not None:
+            torch.cuda.set_rng_state_all(resume["cuda_rng"])
         history = resume["history"]
         best_val_mae = resume["best_val_mae"]
         best_state = resume["best_state"]
@@ -129,7 +118,7 @@ def run_baseline(cfg: Config | None = None, save: bool = True, **kwargs) -> dict
 
     # Snapshot trajectory: dump initial state (pre-FT) on a fresh run.
     if save and cfg.snapshot_every > 0 and start_epoch == 0:
-        save_model_weights(net.state_dict(), f"{cfg.run_name}_ep0")
+        save_model_weights(net.state_dict(), f"{cfg.run_name}_ep0", cfg.results_dir)
         print(f"[snapshot] saved initial state -> {cfg.run_name}_ep0.pt")
 
     for ep in range(start_epoch, cfg.epochs):
@@ -161,7 +150,7 @@ def run_baseline(cfg: Config | None = None, save: bool = True, **kwargs) -> dict
             best_preds, best_ys = val_preds, val_ys
             best_epoch = ep
             if save:
-                save_model_weights(best_state, cfg.run_name)
+                save_model_weights(best_state, cfg.run_name, cfg.results_dir)
 
         print(f"ep {ep:2d}  train_mae={train_mae:.3f}  val_mae={val_mae:.3f}"
               f"{' [best]' if is_best else ''}  ({dt:.0f}s)")
@@ -170,7 +159,7 @@ def run_baseline(cfg: Config | None = None, save: bool = True, **kwargs) -> dict
 
         # Trajectory snapshot every Nth completed epoch.
         if save and cfg.snapshot_every > 0 and (ep + 1) % cfg.snapshot_every == 0:
-            save_model_weights(net.state_dict(), f"{cfg.run_name}_ep{ep + 1}")
+            save_model_weights(net.state_dict(), f"{cfg.run_name}_ep{ep + 1}", cfg.results_dir)
             print(f"[snapshot] saved {cfg.run_name}_ep{ep + 1}.pt")
 
         if save:
@@ -187,7 +176,9 @@ def run_baseline(cfg: Config | None = None, save: bool = True, **kwargs) -> dict
                 "best_epoch": best_epoch,
                 "torch_rng": torch.get_rng_state(),
                 "np_rng": np.random.get_state(),
-            }, cfg.run_name)
+                "python_rng": random.getstate(),
+                "cuda_rng": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+            }, cfg.run_name, cfg.results_dir)
 
     # Report and persist using the best-val checkpoint, not the final epoch.
     val_preds = best_preds if best_state is not None else val_preds
@@ -200,7 +191,7 @@ def run_baseline(cfg: Config | None = None, save: bool = True, **kwargs) -> dict
 
     checkpoint_path = None
     if save and best_state is not None:
-        checkpoint_path = save_model_weights(best_state, cfg.run_name)
+        checkpoint_path = save_model_weights(best_state, cfg.run_name, cfg.results_dir)
 
     results = {
         "run_name": cfg.run_name,
@@ -217,8 +208,8 @@ def run_baseline(cfg: Config | None = None, save: bool = True, **kwargs) -> dict
         "val_ys": val_ys.tolist() if val_ys is not None else [],
     }
     if save:
-        save_results(results)
-        last = cfg_module.RESULTS_DIR / subdir_for(cfg.run_name) / f"{cfg.run_name}_last.pt"
+        save_results(results, cfg.results_dir)
+        last = cfg.results_dir / subdir_for(cfg.run_name) / f"{cfg.run_name}_last.pt"
         if last.exists():
             last.unlink()
     return results

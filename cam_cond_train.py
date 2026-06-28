@@ -10,24 +10,23 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import json
 from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import torch
-from PIL import Image
+from PIL import Image, ImageFile
 from torch.utils.data import DataLoader, Dataset
 
-from skyfinder.training import config as cfg_module
 from skyfinder.training.cam_conditioned import CamConditionedModel, build_cam_id_to_idx
 from skyfinder.training.checkpoint import save_model_weights, save_results
 from skyfinder.training.config import Config
 from skyfinder.training.dataloader import EVAL_TF, TRAIN_TF
-from skyfinder.training.engine import get_device, per_bin_mae
+from skyfinder.training.engine import get_device, per_bin_mae, seed_everything
 from skyfinder.training.families import expand_experiment, load_yaml, resolve_path
 from skyfinder.training.lds import weighted_l1_loss
+from skyfinder.training.splits import get_fold, load_splits
 
 
 class CamDataset(Dataset):
@@ -48,6 +47,9 @@ class CamDataset(Dataset):
                 torch.tensor(int(row["CamId"]), dtype=torch.long))
 
 
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+
+
 def _loader(df, tf, cfg, shuffle):
     return DataLoader(CamDataset(df, tf, cfg.img_dir), batch_size=cfg.batch_size,
                       shuffle=shuffle, num_workers=cfg.num_workers)
@@ -64,7 +66,8 @@ def _predict(net, loader, device):
 
 
 def train_cam(cfg, df, splits, device, emb_dim, cam_dropout, save=True) -> dict:
-    fold = splits[cfg.fold]
+    seed_everything(cfg.seed)
+    fold = get_fold(splits, cfg.fold)
     train_df = df.iloc[fold["train"]].reset_index(drop=True)
     val_df = df.iloc[fold["val"]].reset_index(drop=True)
     test_df = df.iloc[fold["test"]].reset_index(drop=True)
@@ -79,7 +82,7 @@ def train_cam(cfg, df, splits, device, emb_dim, cam_dropout, save=True) -> dict:
     tel = _loader(test_df, EVAL_TF, cfg, shuffle=False)
     train_y = train_df["TempM"].to_numpy()
 
-    best, best_state, best_vp, best_vy = 1e9, None, None, None
+    best, best_state, best_vp, best_vy, best_epoch = 1e9, None, None, None, -1
     for ep in range(cfg.epochs):
         net.train()
         for x, y, cam in tl:
@@ -95,6 +98,7 @@ def train_cam(cfg, df, splits, device, emb_dim, cam_dropout, save=True) -> dict:
             best = vmae
             best_state = {k: v.cpu().clone() for k, v in net.state_dict().items()}
             best_vp, best_vy = vp, vy
+            best_epoch = ep
 
     net.load_state_dict(best_state)
     tp, ty = _predict(net, tel, device)
@@ -102,12 +106,13 @@ def train_cam(cfg, df, splits, device, emb_dim, cam_dropout, save=True) -> dict:
         "run_name": cfg.run_name, "config": asdict(cfg), "device": device,
         "final_val": per_bin_mae(best_vy, best_vp, train_y),
         "test_final": per_bin_mae(ty, tp, train_y), "best_val_mae": best,
+        "best_epoch": best_epoch, "n_train": len(train_df), "n_val": len(val_df), "n_test": len(test_df),
         "val_preds": best_vp.tolist(), "val_ys": best_vy.tolist(),
         "test_preds": tp.tolist(), "test_ys": ty.tolist(),
     }
     if save:
-        save_model_weights(best_state, cfg.run_name)
-        save_results(results)
+        save_model_weights(best_state, cfg.run_name, cfg.results_dir)
+        save_results(results, cfg.results_dir)
     print(f"[done] {cfg.run_name} val={best:.3f} test={results['test_final']['overall']:.3f}")
     return results
 
@@ -123,10 +128,10 @@ def main():
     p = ycfg["paths"]
     paths = dict(labels_path=resolve_path(root, p["labels"]),
                  splits_path=resolve_path(root, p["splits"]),
-                 img_dir=resolve_path(root, p["images"]))
-    cfg_module.RESULTS_DIR = resolve_path(root, p["results"])
+                 img_dir=resolve_path(root, p["images"]),
+                 results_dir=resolve_path(root, p["results"]))
     df = pd.read_csv(paths["labels_path"])
-    splits = json.loads(paths["splits_path"].read_text())
+    splits = load_splits(paths["splits_path"], paths["labels_path"], len(df))
     device = get_device()
 
     matrix = []

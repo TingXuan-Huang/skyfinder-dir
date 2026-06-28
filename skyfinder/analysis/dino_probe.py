@@ -13,7 +13,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 
 import numpy as np
@@ -23,6 +22,7 @@ from torch.utils.data import DataLoader
 
 from skyfinder.training.dataloader import EVAL_TF, SkyFinderDataset
 from skyfinder.training.engine import get_device, per_bin_mae
+from skyfinder.training.splits import load_splits
 
 
 def load_dino(variant: str, device: str):
@@ -51,8 +51,7 @@ def fit_probe(Xtr, ytr, alpha=1.0):
     return scaler, ridge
 
 
-def run_probe(df, splits, fold, variant, img_dir, device) -> dict:
-    net = load_dino(variant, device)
+def run_probe(df, fold, net, img_dir, device) -> dict:
     parts = {s: extract(net, df.iloc[fold[s]].reset_index(drop=True), img_dir, device)
              for s in ("train", "val", "test")}
     scaler, ridge = fit_probe(*parts["train"])
@@ -70,11 +69,12 @@ def main():
     args = ap.parse_args()
 
     df = pd.read_csv(args.labels)
-    splits = json.loads(Path(args.splits).read_text())
+    splits = load_splits(args.splits, args.labels, len(df))
     device = get_device()
+    net = load_dino(args.variant, device)
     val_o, test_o = [], []
     for fold in splits:
-        r = run_probe(df, splits, fold, args.variant, Path(args.img_dir), device)
+        r = run_probe(df, fold, net, Path(args.img_dir), device)
         val_o.append(r["val"]["overall"])
         test_o.append(r["test"]["overall"])
         print(f"[fold {fold['fold']}] DINOv2+Ridge val={r['val']['overall']:.3f} "

@@ -13,7 +13,7 @@ Every module here was triaged module-by-module from the original and verified
 
 ```
 skyfinder/training/   refactored training package (11 modules)
-skyfinder/analysis/   C1 (constant) + C2 (metadata GBM) baselines — CPU only
+skyfinder/analysis/   C1 (constant) + C2 (metadata tree ensemble) baselines — CPU only
 run_sweep.py          GPU sweep harness: experiment x fold -> run_baseline(cfg)
 run_baselines.py      CPU baselines runner (C1 + C2)
 configs/main.yaml     the 8-experiment x 5-fold matrix
@@ -23,7 +23,7 @@ slurm/run_sweep.slurm + submit_sweep.sh   Hyak array-job submission
 
 ## Key design point
 
-Paths are **Config fields** (`labels_path`/`splits_path`/`img_dir`) passed into each run,
+Paths are **Config fields** (`labels_path`/`splits_path`/`img_dir`/`results_dir`) passed into each run,
 not module globals. `run_sweep.py` builds one `Config` per (experiment, fold). The eval metric
 `per_bin_mae` uses **`bin_w=1.0 °C`** (paper-faithful; the few-bin is sparse on SkyFinder — see
 the reference repo's U3 finding).
@@ -50,6 +50,9 @@ bash submit_sweep.sh 2
 # 5. CPU baselines (anytime):
 python run_baselines.py --config configs/main.yaml
 ```
+
+`splits.py` records a fingerprint of `labels_with_images.csv`. Re-run it (and
+`splits_random.py`, if used) whenever the label file is regenerated or reordered.
 
 ## Hyak
 

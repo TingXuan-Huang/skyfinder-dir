@@ -1,0 +1,9 @@
+=== test per-bin MAE (bin_w=1.0) ===
+resnet50  baseline | overall= 8.22±0.81  many= 7.94±0.65  medium=22.37±3.38  few=28.17±4.10 | folds=5
+resnet50  lds      | overall= 8.50±1.11  many= 8.23±1.07  medium=22.29±3.27  few=28.77±4.33 | folds=5
+resnet50  fds      | overall= 8.05±0.97  many= 7.79±0.87  medium=21.16±3.24  few=26.69±2.36 | folds=5
+resnet50  lds_fds  | overall= 8.41±1.16  many= 8.15±1.11  medium=22.08±3.16  few=27.55±5.04 | folds=5
+vit_b_16  baseline | overall= 8.60±0.73  many= 8.31±0.67  medium=22.53±5.04  few=28.09±9.02 | folds=5
+vit_b_16  lds      | overall= 9.10±1.00  many= 8.84±1.06  medium=20.35±6.29  few=23.85±10.57 | folds=5
+vit_b_16  fds      | overall= 8.40±0.80  many= 8.14±0.82  medium=21.30±5.52  few=26.93±7.10 | folds=5
+vit_b_16  lds_fds  | overall= 9.41±0.80  many= 9.10±0.61  medium=22.32±8.41  few=28.61±11.10 | folds=5

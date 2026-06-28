@@ -38,19 +38,30 @@ class CamConditionedModel(nn.Module):
         self.backbone = base
 
         self.cam_id_to_idx = dict(cam_id_to_idx)  # raw CamId -> idx>=1; idx 0 = unknown
+        if not self.cam_id_to_idx:
+            raise ValueError("cam_id_to_idx must contain at least one training camera")
         self.n_cams = max(cam_id_to_idx.values()) + 1
         self.unknown_idx = 0
-        assert self.unknown_idx not in cam_id_to_idx.values(), "reserve idx 0 for unknown"
+        if self.unknown_idx in cam_id_to_idx.values():
+            raise ValueError("index 0 is reserved for the unknown camera token")
+        raw_ids = sorted(self.cam_id_to_idx)
+        self.register_buffer("known_cam_ids", torch.tensor(raw_ids, dtype=torch.long))
+        self.register_buffer(
+            "known_cam_indices",
+            torch.tensor([self.cam_id_to_idx[camera_id] for camera_id in raw_ids], dtype=torch.long),
+        )
         self.cam_emb = nn.Embedding(self.n_cams, emb_dim)
         self.cam_proj = nn.Linear(emb_dim, self.feat_dim)
         self.head = nn.Linear(self.feat_dim, 1)
         self.cam_dropout_prob = cam_dropout_prob
 
     def cam_idx(self, cam_ids: torch.Tensor) -> torch.Tensor:
-        out = torch.zeros_like(cam_ids, dtype=torch.long)
-        for i, c in enumerate(cam_ids.tolist()):
-            out[i] = self.cam_id_to_idx.get(int(c), self.unknown_idx)
-        return out
+        """Map raw IDs to embedding IDs without per-item Python/GPU synchronization."""
+        positions = torch.searchsorted(self.known_cam_ids, cam_ids)
+        positions = positions.clamp(max=len(self.known_cam_ids) - 1)
+        is_known = self.known_cam_ids[positions] == cam_ids
+        mapped = self.known_cam_indices[positions]
+        return torch.where(is_known, mapped, torch.full_like(mapped, self.unknown_idx))
 
     def forward(self, x: torch.Tensor, cam_ids: torch.Tensor) -> torch.Tensor:
         f_img = self.backbone(x)

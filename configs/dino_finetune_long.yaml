@@ -1,0 +1,28 @@
+project_root: "."
+
+paths:
+  labels: "data/labels_with_images.csv"
+  splits: "data/splits/loco_5fold.json"
+  images: "data/images"
+  results: "results_dino_finetune_long"
+
+# Longer-schedule rerun of the DINOv2 ViT-S/14 partial fine-tune. The 20-epoch
+# run had best_epoch=18-19 in every fold (val MAE still falling at the budget
+# limit), so this doubles the budget to 40 epochs. The cosine schedule has
+# T_max=epochs, so it now decays over the full 40 epochs (not a continuation of
+# the 20-epoch run). Everything else is held identical to keep the comparison
+# clean. Per-epoch held-out test MAE is now logged in `history[*].test_mae` and
+# `history[*].test_bins` so we can see whether the LOCO optimum precedes the
+# validation optimum. Routed to results_dino_finetune_long + a distinct
+# run_name_prefix so the original 20-epoch results are preserved for comparison.
+variant: "dinov2_vits14"
+run_name_prefix: "dino_v2_finetune_long"
+folds: [0, 1, 2, 3, 4]
+epochs: 40
+batch_size: 64
+head_lr: 0.001
+backbone_lr: 0.00001
+unfreeze_blocks: 2
+num_workers: 8
+seed: 0
+skip_existing: true

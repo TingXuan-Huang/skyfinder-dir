@@ -1,0 +1,20 @@
+project_root: "."
+
+paths:
+  labels: "data/labels_with_images.csv"
+  splits: "data/splits/loco_5fold.json"
+  images: "data/images"
+  results: "results_dino_finetune"
+
+# Controlled foundation-model ablation: DINOv2 ViT-S/14, final two blocks plus
+# the regression head trainable. This avoids a broad backbone search.
+variant: "dinov2_vits14"
+folds: [0, 1, 2, 3, 4]
+epochs: 20
+batch_size: 64
+head_lr: 0.001
+backbone_lr: 0.00001
+unfreeze_blocks: 2
+num_workers: 8
+seed: 0
+skip_existing: true

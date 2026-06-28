@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 
 from skyfinder.training.engine import per_bin_mae
+from skyfinder.training.splits import get_fold, load_splits
 
 BINS = ["overall", "many", "medium", "few"]
 _KIND = {(False, False): "baseline", (True, False): "lds",
@@ -27,30 +28,48 @@ _KIND = {(False, False): "baseline", (True, False): "lds",
 
 
 def config_kind(cfg: dict) -> str:
+    if cfg.get("method"):
+        return str(cfg["method"])
     return _KIND[(bool(cfg.get("use_lds")), bool(cfg.get("use_fds")))]
 
 
 def build_table(results_dir, labels_path, splits_path, split="val", bin_w=1.0) -> pd.DataFrame:
     """Long-form rows: one per (run, fold) with the 4 per-bin MAEs for `split`."""
     df = pd.read_csv(labels_path)
-    splits = json.loads(Path(splits_path).read_text())
+    splits = load_splits(splits_path, labels_path, len(df))
     temp = df["TempM"].to_numpy()
 
     rows = []
     for jp in sorted(glob.glob(str(Path(results_dir) / "**" / "*.json"), recursive=True)):
-        d = json.load(open(jp))
-        if "config" not in d or f"{split}_preds" not in d or not d.get(f"{split}_preds"):
+        with Path(jp).open() as f:
+            d = json.load(f)
+
+        if "config" in d and d.get(f"{split}_preds"):
+            if str(d.get("run_name", "")).startswith("tune"):
+                continue
+            cfg = d["config"]
+            fold = int(cfg["fold"])
+            train_y = temp[get_fold(splits, fold)["train"]]
+            ys = np.asarray(d[f"{split}_ys"], dtype=float)
+            ps = np.asarray(d[f"{split}_preds"], dtype=float)
+            m = per_bin_mae(ys, ps, train_y, bin_w=bin_w)
+            rows.append({"model": cfg["model"], "kind": config_kind(cfg), "fold": fold,
+                         **{b: m.get(b, np.nan) for b in BINS}})
             continue
-        if str(d.get("run_name", "")).startswith("tune"):  # skip hyperparam-sweep runs
+
+        # C1/C2 files store already-computed 1 °C metrics rather than raw
+        # predictions. Include them in the table at their native resolution.
+        if "per_fold" not in d:
             continue
-        cfg = d["config"]
-        fold = int(cfg["fold"])
-        train_y = temp[splits[fold]["train"]]
-        ys = np.asarray(d[f"{split}_ys"], dtype=float)
-        ps = np.asarray(d[f"{split}_preds"], dtype=float)
-        m = per_bin_mae(ys, ps, train_y, bin_w=bin_w)
-        rows.append({"model": cfg["model"], "kind": config_kind(cfg), "fold": fold,
-                     **{b: m.get(b, np.nan) for b in BINS}})
+        if bin_w != 1.0:
+            raise ValueError("C1/C2 artifacts only support aggregation with --bin-w 1.0")
+        for record in d["per_fold"]:
+            metric = record.get(split)
+            if not isinstance(metric, dict):
+                continue
+            kind = f"c1_{record['predictor']}" if "predictor" in record else d.get("method", "c2_metadata")
+            rows.append({"model": "metadata_baselines", "kind": kind, "fold": int(record["fold"]),
+                         **{b: metric.get(b, np.nan) for b in BINS}})
     return pd.DataFrame(rows)
 
 
@@ -74,8 +93,11 @@ def main():
         return
     out, n = summarize(tbl)
     print(f"=== {args.split} per-bin MAE (bin_w={args.bin_w}) ===")
-    order = ["baseline", "lds", "fds", "lds_fds"]
+    preferred_order = ["baseline", "lds", "fds", "lds_fds", "cam_conditioned"]
     for model in sorted(tbl["model"].unique()):
+        present = set(tbl.loc[tbl["model"] == model, "kind"])
+        order = [kind for kind in preferred_order if kind in present]
+        order.extend(sorted(present - set(order)))
         for kind in order:
             if (model, kind) not in out.index:
                 continue

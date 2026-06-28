@@ -13,6 +13,7 @@ experiments:
   # features; unknown token (idx 0) for LOCO test cams via cam_dropout. Tests whether a
   # per-camera prior closes the LOCO gap. Expected: val ~ baseline; test drops by ?
   - name: "cam_cond_resnet50"
+    method: "cam_conditioned"
     model: "resnet50"
     folds: [0, 1, 2, 3, 4]
     epochs: 50

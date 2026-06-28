@@ -4,8 +4,8 @@ This is the control for Analysis #8 in REPORT.md §11: if val ≈ test under a
 random row split but val << test under LOCO, the val→test gap is caused by
 camera-shift, not just sample variance.
 
-Output: data/splits/random_5fold.json — same schema as loco_5fold.json so the
-existing trainer can consume it by swapping `splits_path` in config.yaml.
+Output: data/splits/random_5fold.json — the same fingerprinted manifest schema
+as loco_5fold.json, consumable by configs/main_random.yaml.
 
 For each fold:
   - test = a random 1/5 of all rows (every camera contributes)
@@ -17,6 +17,8 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+from skyfinder.training.splits import make_split_manifest
 
 DATA_DIR = Path("data")
 LABELS_PATH = DATA_DIR / "labels_with_images.csv"
@@ -65,10 +67,10 @@ def main() -> None:
               f"test={len(test_idx):>6,} ({test_cams} cams)")
 
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    OUT_PATH.write_text(json.dumps(folds))
+    OUT_PATH.write_text(json.dumps(make_split_manifest(folds, LABELS_PATH, n), indent=2))
     print(f"[saved] {OUT_PATH}  ({OUT_PATH.stat().st_size:,} bytes)")
     print()
-    print("To use this split in an experiment, set in config.yaml:")
+    print("To use this split, run configs/main_random.yaml:")
     print(f"  splits_path: {OUT_PATH}")
     print("then run the standard pipeline. Expected result if camera-shift "
           "is the cause:  val MAE ≈ test MAE ≈ 2.8 °C.")

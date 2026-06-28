@@ -40,11 +40,15 @@ def compare_to_baseline(tbl, model: str, bin_name: str, **kw):
     for k in KIND_ORDER:
         m = sub[sub["kind"] == k].set_index("fold")[bin_name]
         folds = sorted(set(base.index) & set(m.index))  # ALIGN: only folds both ran
-        if len(folds) < 2:
-            out[k] = (folds, None)
+        a = m.loc[folds].to_numpy()
+        b = base.loc[folds].to_numpy()
+        finite = np.isfinite(a) & np.isfinite(b)
+        finite_folds = [fold for fold, keep in zip(folds, finite) if keep]
+        if len(finite_folds) < 2:
+            out[k] = (finite_folds, None)
             continue
-        d, lo, hi = paired_bootstrap(m.loc[folds].to_numpy(), base.loc[folds].to_numpy(), **kw)
-        out[k] = (folds, (d, lo, hi))
+        d, lo, hi = paired_bootstrap(a[finite], b[finite], **kw)
+        out[k] = (finite_folds, (d, lo, hi))
     return out
 
 

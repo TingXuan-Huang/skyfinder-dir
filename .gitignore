@@ -9,7 +9,12 @@ data/*.csv
 data/*.parquet
 data/splits
 data/splits/
-results/
+# model checkpoints — too large to commit
 *.pt
+results/**/*.pt
+results_random/**/*.pt
+results_cam_cond/**/*.pt
+results_dino_finetune/**/*.pt
+results_dino_finetune_long/**/*.pt
 slurm/logs/
 .DS_Store

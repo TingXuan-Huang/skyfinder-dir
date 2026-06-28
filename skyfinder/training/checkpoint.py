@@ -7,7 +7,8 @@ Nested layout (single source of truth, no fallback):
 
 `<subdir>` is derived from `run_name` by stripping `_fold{N}` (and `_ep{N}`).
 The old dual-path fallback (flat root + nested) was removed in the May 2026 refactor.
-For flat-layout artifacts produced by older code, run `skyfinder data-prep --migrate-results`.
+For flat-layout artifacts produced by older code, run
+`python -m skyfinder.training.migrate --root results`.
 
 Function naming reflects what's saved:
     save_model_weights / load_model_weights — state_dict only
@@ -43,8 +44,8 @@ def find_artifact(run_name: str, suffix: str, results_dir: Path) -> Path | None:
     """Return the nested-layout path for `<run_name><suffix>` if it exists.
 
     Replaces the old dual-path `_resolve_load_path` (May 2026 refactor). For
-    flat-layout artifacts from before that refactor, run `skyfinder data-prep
-    --migrate-results` first.
+    flat-layout artifacts from before that refactor, run the migration module
+    first.
     """
     path = _resolved_path(run_name, suffix, results_dir)
     return path if path.exists() else None
@@ -76,7 +77,7 @@ def _json_default(obj):
 
 
 def save_results(results: dict, results_dir: Path | None = None) -> Path:
-    base = results_dir if results_dir is not None else RESULTS_DIR
+    base = Path(results_dir) if results_dir is not None else RESULTS_DIR
     out_dir = base / subdir_for(results["run_name"])
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"{results['run_name']}.json"
@@ -94,7 +95,7 @@ def load_results(path) -> dict:
 # ============================================================
 
 def save_model_weights(state_dict, run_name: str, results_dir: Path | None = None) -> Path:
-    base = results_dir if results_dir is not None else RESULTS_DIR
+    base = Path(results_dir) if results_dir is not None else RESULTS_DIR
     out_dir = base / subdir_for(run_name)
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"{run_name}.pt"
@@ -115,7 +116,7 @@ def load_model_weights(run_name_or_path, results_dir: Path | None = None, map_lo
     p = Path(run_name_or_path)
     if p.exists():
         return torch.load(p, map_location=map_location, weights_only=True)
-    base = results_dir if results_dir is not None else RESULTS_DIR
+    base = Path(results_dir) if results_dir is not None else RESULTS_DIR
     name = str(run_name_or_path)
     stem = name[:-3] if name.endswith(".pt") else name
     path = _resolved_path(stem, ".pt", base)
@@ -130,7 +131,7 @@ def load_model_weights(run_name_or_path, results_dir: Path | None = None, map_lo
 # ============================================================
 
 def save_training_state(state: dict, run_name: str, results_dir: Path | None = None) -> Path:
-    base = results_dir if results_dir is not None else RESULTS_DIR
+    base = Path(results_dir) if results_dir is not None else RESULTS_DIR
     out_dir = base / subdir_for(run_name)
     out_dir.mkdir(parents=True, exist_ok=True)
     final = out_dir / f"{run_name}_last.pt"
@@ -142,7 +143,7 @@ def save_training_state(state: dict, run_name: str, results_dir: Path | None = N
 
 def load_training_state(run_name: str, results_dir: Path | None = None) -> dict | None:
     """Load full training state. Returns None if no `_last.pt` exists."""
-    base = results_dir if results_dir is not None else RESULTS_DIR
+    base = Path(results_dir) if results_dir is not None else RESULTS_DIR
     path = _resolved_path(run_name, "_last.pt", base)
     if not path.exists():
         return None

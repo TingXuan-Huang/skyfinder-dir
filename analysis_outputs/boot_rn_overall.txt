@@ -1,0 +1,4 @@
+=== resnet50 test overall: method - baseline (paired bootstrap, common folds; * = CI excludes 0) ===
+lds     : Δ=+0.288  95% CI [-0.111, +0.819]  (folds [0, 1, 2, 3, 4])
+fds     : Δ=-0.161  95% CI [-0.407, +0.127]  (folds [0, 1, 2, 3, 4])
+lds_fds : Δ=+0.192  95% CI [-0.182, +0.617]  (folds [0, 1, 2, 3, 4])

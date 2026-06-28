@@ -12,7 +12,6 @@ from pathlib import Path
 import numpy as np
 
 from run_sweep import build_matrix
-from skyfinder.training import config as cfg_module
 from skyfinder.training.checkpoint import load_training_state, save_model_weights, save_results, subdir_for
 from skyfinder.training.dataloader import build_loaders
 from skyfinder.training.engine import per_bin_mae
@@ -48,8 +47,6 @@ def recover_task(task_id: int, config: str, *, overwrite: bool, save_missing_wei
                  remove_last: bool, dry_run: bool) -> Path | None:
     ycfg = load_yaml(config)
     matrix, results_dir = build_matrix(ycfg)
-    cfg_module.RESULTS_DIR = results_dir
-
     name, cfg = matrix[task_id]
     run_dir = results_dir / subdir_for(name)
     last_path = run_dir / f"{name}_last.pt"
@@ -59,7 +56,7 @@ def recover_task(task_id: int, config: str, *, overwrite: bool, save_missing_wei
     print(f"[recover] task={task_id} run={name}")
     print(f"[paths] last={last_path} json={json_path}")
 
-    if completed(name) and not overwrite:
+    if completed(name, results_dir) and not overwrite:
         print(f"[skip] {name} already has results JSON")
         return json_path
     if not last_path.exists():
@@ -68,7 +65,7 @@ def recover_task(task_id: int, config: str, *, overwrite: bool, save_missing_wei
         print("[dry-run] checkpoint exists; no JSON written")
         return None
 
-    state = load_training_state(name)
+    state = load_training_state(name, results_dir)
     if state is None:
         raise FileNotFoundError(f"could not load resume checkpoint: {last_path}")
 
@@ -94,7 +91,7 @@ def recover_task(task_id: int, config: str, *, overwrite: bool, save_missing_wei
         best_state = state.get("best_state")
         if best_state is None:
             raise RuntimeError(f"{name} checkpoint has no best_state to save")
-        checkpoint_path = save_model_weights(best_state, name)
+        checkpoint_path = save_model_weights(best_state, name, results_dir)
 
     results = {
         "run_name": name,
@@ -110,7 +107,7 @@ def recover_task(task_id: int, config: str, *, overwrite: bool, save_missing_wei
         "val_preds": best_preds_arr.tolist(),
         "val_ys": best_ys_arr.tolist(),
     }
-    out = save_results(results)
+    out = save_results(results, results_dir)
     print(f"[ok] {name} best_epoch={state['best_epoch']} best_val_mae={state['best_val_mae']:.4f}")
 
     if remove_last:

@@ -9,8 +9,9 @@ Test cameras never appear in train/val (leave-one-camera-out for evaluation).
 Val rows come from train cameras — val is for early-stopping / hyperparam picks,
 test is what we report.
 
-Writes data/splits/loco_5fold.json: a list of {fold, test_cams, train, val, test}
-where train/val/test are row indices into data/labels_with_images.csv.
+Writes data/splits/loco_5fold.json: a manifest containing the source-labels
+fingerprint plus a list of {fold, test_cams, train, val, test}. The row indices
+are valid only for that exact data/labels_with_images.csv file.
 
 Run from project root:  python data/splits.py
 """
@@ -19,6 +20,8 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+from skyfinder.training.splits import make_split_manifest
 
 DATA_DIR = Path("data")
 LABELS_PATH = DATA_DIR / "labels_with_images.csv"
@@ -63,7 +66,7 @@ def main() -> None:
               f"train={len(train_idx):>6,}  val={len(val_idx):>5,}  test={len(test_idx):>6,}")
 
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    OUT_PATH.write_text(json.dumps(folds))
+    OUT_PATH.write_text(json.dumps(make_split_manifest(folds, LABELS_PATH, n), indent=2))
     print(f"[saved] {OUT_PATH}  ({OUT_PATH.stat().st_size:,} bytes)")
 
 

@@ -1,0 +1,8 @@
+=== per-camera test MAE, CNN=lds_fds_resnet50  (n_cams=47) ===
+climate-distance r = +0.51   geo-distance r = -0.00
+worst 5 cameras (CamId / mae / climate_dist):
+  cam   4232  mae=25.78  climate_dist=15.31
+  cam     75  mae=20.49  climate_dist=11.83
+  cam   6798  mae=12.68  climate_dist= 6.46
+  cam     65  mae=12.67  climate_dist= 9.15
+  cam   9730  mae=12.04  climate_dist= 4.93

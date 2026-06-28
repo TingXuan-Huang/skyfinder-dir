@@ -1,0 +1,14 @@
+=== alpha sweep (test overall MAE, mean over folds), CNN=lds_fds_resnet50 ===
+alpha=0 -> pure CNN | alpha=1 -> pure C2 metadata
+  alpha=0.0: 8.408
+  alpha=0.1: 7.762
+  alpha=0.2: 7.142
+  alpha=0.3: 6.556
+  alpha=0.4: 6.013
+  alpha=0.5: 5.525
+  alpha=0.6: 5.103
+  alpha=0.7: 4.765
+  alpha=0.8: 4.533
+  alpha=0.9: 4.432
+  alpha=1.0: 4.475
+[best] alpha=0.9 -> 4.432  (CNN-only=8.408, C2-only=4.475)

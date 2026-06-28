@@ -4,8 +4,9 @@ prediction = alpha*C2 + (1-alpha)*CNN on the TEST split; sweep alpha and find th
 MAE-minimising blend. alpha~1 -> metadata suffices; alpha~0 -> image suffices;
 alpha~0.5 -> complementary (image+metadata fusion is the right project).
 
-C2 (HistGBR on CamId/Hour/Month/Lat/Long) is refit per fold here to get raw predictions;
-CNN test predictions are read from each run's JSON (written by infer_test.py).
+C2 is refit per fold here to get raw metadata-only predictions; CNN predictions
+are read from each run's JSON. ``--selection validation`` chooses alpha on the
+validation split and reports one untouched test result per fold.
 
 Usage:
     python -m skyfinder.analysis.ensemble --cnn lds_fds_resnet50 --results results \
@@ -20,21 +21,25 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from skyfinder.training.checkpoint import subdir_for
+from skyfinder.training.checkpoint import load_results, subdir_for
 from skyfinder.training.engine import per_bin_mae
+from skyfinder.training.splits import load_splits
+from skyfinder.analysis.baselines_metadata import METADATA_FEATURES, make_metadata_regressor
 
-FEATURES = ["CamId_cat", "Hour", "Month", "Latitude", "Longitude"]
 ALPHAS = np.round(np.arange(0.0, 1.01, 0.1), 2)
 
 
+def c2_pred(df: pd.DataFrame, fold: dict, split: str, seed: int = 0) -> np.ndarray:
+    """Fit C2 on train and predict one configured fold split."""
+    train_df, target_df = df.iloc[fold["train"]], df.iloc[fold[split]]
+    model = make_metadata_regressor(seed=seed)
+    model.fit(train_df[METADATA_FEATURES], train_df["TempM"].to_numpy())
+    return model.predict(target_df[METADATA_FEATURES])
+
+
 def c2_test_pred(df: pd.DataFrame, fold: dict, seed: int = 0) -> np.ndarray:
-    """Refit the metadata GBM on the fold's train, predict on its test (raw preds)."""
-    from sklearn.ensemble import HistGradientBoostingRegressor
-    train_df, test_df = df.iloc[fold["train"]], df.iloc[fold["test"]]
-    model = HistGradientBoostingRegressor(max_iter=200, learning_rate=0.05, max_depth=6,
-                                          categorical_features=[0], random_state=seed)
-    model.fit(train_df[FEATURES].to_numpy(), train_df["TempM"].to_numpy())
-    return model.predict(test_df[FEATURES].to_numpy())
+    """Backward-compatible C2 test prediction helper."""
+    return c2_pred(df, fold, "test", seed)
 
 
 def blend_sweep(c2, cnn, y, train_y, bin_w=1.0) -> dict:
@@ -43,10 +48,7 @@ def blend_sweep(c2, cnn, y, train_y, bin_w=1.0) -> dict:
 
 
 def _prep(df: pd.DataFrame) -> pd.DataFrame:
-    cam_dtype = pd.CategoricalDtype(categories=sorted(df["CamId"].unique()))
-    df = df.copy()
-    df["CamId_cat"] = df["CamId"].astype(cam_dtype).cat.codes
-    return df
+    return df.copy()
 
 
 def main():
@@ -56,27 +58,54 @@ def main():
     ap.add_argument("--labels", default="data/labels_with_images.csv")
     ap.add_argument("--splits", default="data/splits/loco_5fold.json")
     ap.add_argument("--bin-w", type=float, default=1.0)
+    ap.add_argument("--selection", choices=["test_sweep", "validation"], default="test_sweep")
+    ap.add_argument("--out", default=None, help="optional JSON output for the selected blend")
     args = ap.parse_args()
 
     df = _prep(pd.read_csv(args.labels))
-    splits = json.loads(Path(args.splits).read_text())
+    splits = load_splits(args.splits, args.labels, len(df))
 
     per_alpha = {a: [] for a in ALPHAS}
+    selected = []
     for fold in splits:
         name = f"{args.cnn}_fold{fold['fold']}"
         jp = Path(args.results) / subdir_for(name) / f"{name}.json"
         if not jp.exists():
             continue
-        d = json.load(open(jp))
+        d = load_results(jp)
         if not d.get("test_preds"):
             continue
-        cnn = np.asarray(d["test_preds"], float)
-        y = np.asarray(d["test_ys"], float)
-        c2 = c2_test_pred(df, fold)
         train_y = df["TempM"].to_numpy()[fold["train"]]
-        sweep = blend_sweep(c2, cnn, y, train_y, args.bin_w)
+        cnn_test = np.asarray(d["test_preds"], float)
+        y_test = np.asarray(d["test_ys"], float)
+        c2_test = c2_pred(df, fold, "test")
+        expected_test = df["TempM"].to_numpy()[fold["test"]]
+        if cnn_test.shape != c2_test.shape or y_test.shape != c2_test.shape:
+            raise ValueError(f"{name}: prediction lengths do not match the configured test fold")
+        if not np.allclose(y_test, expected_test):
+            raise ValueError(f"{name}: saved test targets do not match the configured labels/splits")
+        sweep = blend_sweep(c2_test, cnn_test, y_test, train_y, args.bin_w)
         for a in ALPHAS:
             per_alpha[a].append(sweep[a]["overall"])
+
+        if args.selection == "validation":
+            if not d.get("val_preds"):
+                raise ValueError(f"{name}: validation predictions are required for validation selection")
+            cnn_val = np.asarray(d["val_preds"], float)
+            y_val = np.asarray(d["val_ys"], float)
+            c2_val = c2_pred(df, fold, "val")
+            expected_val = df["TempM"].to_numpy()[fold["val"]]
+            if cnn_val.shape != c2_val.shape or not np.allclose(y_val, expected_val):
+                raise ValueError(f"{name}: saved validation predictions do not match the configured fold")
+            val_sweep = blend_sweep(c2_val, cnn_val, y_val, train_y, args.bin_w)
+            alpha = min(ALPHAS, key=lambda value: val_sweep[value]["overall"])
+            test_metric = per_bin_mae(y_test, alpha * c2_test + (1 - alpha) * cnn_test, train_y, args.bin_w)
+            selected.append({
+                "fold": int(fold["fold"]),
+                "alpha": float(alpha),
+                "val": val_sweep[alpha],
+                "test": test_metric,
+            })
 
     if not per_alpha[ALPHAS[0]]:
         print(f"no CNN test preds for '{args.cnn}' — run infer_test.py first")
@@ -91,6 +120,23 @@ def main():
         print(f"  alpha={a:.1f}: {m:.3f}")
     print(f"[best] alpha={best_a} -> {best:.3f}  "
           f"(CNN-only={np.mean(per_alpha[0.0]):.3f}, C2-only={np.mean(per_alpha[1.0]):.3f})")
+    if selected:
+        test = np.asarray([row["test"]["overall"] for row in selected])
+        report = {
+            "method": "validation_selected_ensemble",
+            "cnn": args.cnn,
+            "per_fold": selected,
+            "summary": {
+                "test_mae_mean": float(test.mean()),
+                "test_mae_std": float(test.std(ddof=1)),
+                "alphas": [row["alpha"] for row in selected],
+            },
+        }
+        print(f"[validation-selected] test={test.mean():.3f} +/- {test.std(ddof=1):.3f}")
+        if args.out:
+            Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.out).write_text(json.dumps(report, indent=2))
+            print(f"[saved] {args.out}")
 
 
 if __name__ == "__main__":

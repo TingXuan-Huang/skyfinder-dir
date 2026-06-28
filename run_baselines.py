@@ -1,4 +1,4 @@
-"""Run the CPU metadata baselines C1 (constant) + C2 (metadata GBM). No GPU, no images.
+"""Run the CPU metadata baselines C1 (constant) + C2 (metadata tree ensemble). No GPU, no images.
 
 Outputs results/_analysis/{c1_constants,c2_metadata_only}.json.
 Usage:  python run_baselines.py --config configs/main.yaml
@@ -30,7 +30,7 @@ def main():
     }
     print("=== C1 constant baselines ===")
     run_baselines_constant(cfg)
-    print("\n=== C2 metadata GBM ===")
+    print("\n=== C2 metadata tree ensemble ===")
     run_baselines_metadata(cfg)
 
 

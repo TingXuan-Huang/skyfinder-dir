@@ -7,7 +7,6 @@ Public API:
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import numpy as np
@@ -18,6 +17,7 @@ from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 
 from .config import Config, IMG_DIR
+from .splits import get_fold, load_splits
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True  # tolerate the handful of partial JPEGs
 
@@ -62,7 +62,7 @@ def build_loaders(cfg: Config, *, train_weights=None):
 
     Returns (train_loader, val_loader, train_df, val_df).
 
-    Every run parameter (fold, batch_size, subsets, seed, corruption, paths) comes from cfg.
+    Every run parameter (fold, batch_size, subsets, seed, paths) comes from cfg.
 
     `train_weights`: optional numpy array aligned with the *unsampled* train rows
         (df.iloc[f["train"]]). If cfg.train_subset is set, weights are subset to match.
@@ -70,23 +70,21 @@ def build_loaders(cfg: Config, *, train_weights=None):
         `train_loader.dataset.weights = ...` instead of passing them here.)
     """
     df = pd.read_csv(cfg.labels_path)
-    splits = json.loads(cfg.splits_path.read_text())
-    f = splits[cfg.fold]
+    splits = load_splits(cfg.splits_path, cfg.labels_path, len(df))
+    f = get_fold(splits, cfg.fold)
     train_df = df.iloc[f["train"]].reset_index(drop=True)
     val_df = df.iloc[f["val"]].reset_index(drop=True)
 
-    # F-family corruption (applied BEFORE subsetting so LDS bins reflect the
-    # corrupted distribution).
-    if cfg.corruption is not None:
-        from skyfinder.analysis.corrupt_labels import corrupt_train_labels
-        train_df = corrupt_train_labels(train_df, cfg.corruption, seed=cfg.seed)
-
-    if cfg.train_subset:
+    if cfg.train_subset is not None:
+        if cfg.train_subset > len(train_df):
+            raise ValueError(f"train_subset={cfg.train_subset} exceeds {len(train_df)} available rows")
         sampled = train_df.sample(cfg.train_subset, random_state=cfg.seed)
         if train_weights is not None:
             train_weights = train_weights[sampled.index.to_numpy()]
         train_df = sampled.reset_index(drop=True)
-    if cfg.val_subset:
+    if cfg.val_subset is not None:
+        if cfg.val_subset > len(val_df):
+            raise ValueError(f"val_subset={cfg.val_subset} exceeds {len(val_df)} available rows")
         val_df = val_df.sample(cfg.val_subset, random_state=cfg.seed).reset_index(drop=True)
 
     train_loader = DataLoader(

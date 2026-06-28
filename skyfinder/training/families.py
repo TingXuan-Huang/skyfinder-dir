@@ -1,22 +1,16 @@
-"""Experiment-family registry + YAML loading + expansion helpers.
+"""Experiment-family metadata, YAML loading, and expansion helpers.
 
-A "family" is a named subset of experiments across one or more YAML configs.
-The CLI's `skyfinder train --family X` looks up X here, loads the YAML, and
-runs the matching experiments.
-
-To add a new family: append one line to `FAMILIES` and (if needed) a new YAML
-under `configs/`. No SLURM or CLI changes required.
+A family is a named, checked-in YAML configuration. The public registry only
+contains configurations that exist in this repository.
 """
 from __future__ import annotations
 
 import fnmatch
-import json
 import sys
 from pathlib import Path
 
 import yaml
 
-from . import config as cfg_module
 from .checkpoint import subdir_for
 
 # ============================================================
@@ -24,109 +18,25 @@ from .checkpoint import subdir_for
 # ============================================================
 
 FAMILIES: dict[str, dict] = {
-    # ---------- Headline ----------
     "main": {
         "config": "configs/main.yaml",
         "pattern": None,
         "desc": "Main sweep: baseline / LDS / FDS / LDS+FDS x 5 folds (ResNet + ViT)",
     },
-
-    # ---------- DIR hyperparameter robustness (A1-A5) ----------
-    "lds_sigma": {
-        "config": "configs/dir_hyperparams.yaml",
-        "pattern": "tune_lds_sigma_*",
-        "desc": "LDS sigma sweep (A1)",
-    },
-    "lds_reweight": {
-        "config": "configs/dir_hyperparams.yaml",
-        "pattern": "tune_lds_reweight_*",
-        "desc": "LDS reweight scheme (A2)",
-    },
-    "bin_width": {
-        "config": "configs/dir_hyperparams.yaml",
-        "pattern": "tune_bucket_*",
-        "desc": "Bucket width sweep (A3)",
-    },
-    "fds_momentum": {
-        "config": "configs/dir_hyperparams.yaml",
-        "pattern": "tune_fds_momentum_*",
-        "desc": "FDS momentum sweep (A4)",
-    },
-    "fds_start_smooth": {
-        "config": "configs/dir_hyperparams.yaml",
-        "pattern": "tune_fds_start_smooth_*",
-        "desc": "FDS start_smooth sweep (A5)",
-    },
-    "dir_hyperparams": {
-        "config": "configs/dir_hyperparams.yaml",
+    "random_control": {
+        "config": "configs/main_random.yaml",
         "pattern": None,
-        "desc": "All DIR hyperparams (A1-A5)",
+        "desc": "Random row-split control: ResNet and ViT baselines",
     },
-
-    # ---------- Diagnostic ----------
-    "linear_probe": {
-        "config": "configs/ablations.yaml",
-        "pattern": "d4_*",
-        "desc": "Linear probe vs full fine-tune (D4)",
-    },
-    "seed_variance": {
-        "config": "configs/ablations.yaml",
-        "pattern": "e1_*",
-        "desc": "Seed variance on headline DIR config (E1)",
-    },
-
-    # ---------- Label corruption robustness (F1-F5) ----------
-    "corrupt_random": {
-        "config": "configs/ablations.yaml",
-        "pattern": "f1_*",
-        "desc": "Random label corruption + impute (F1)",
-    },
-    "corrupt_range_impute": {
-        "config": "configs/ablations.yaml",
-        "pattern": "f2_*_impute_*",
-        "desc": "Range MNAR + impute (F2)",
-    },
-    "corrupt_range_drop": {
-        "config": "configs/ablations.yaml",
-        "pattern": "f2_*_drop_*",
-        "desc": "Range MNAR + drop rows (F2)",
-    },
-    "corrupt_rare_bin": {
-        "config": "configs/ablations.yaml",
-        "pattern": "f3_*",
-        "desc": "Rare-bin amplification (F3)",
-    },
-    "corrupt_noise": {
-        "config": "configs/ablations.yaml",
-        "pattern": "f5_*",
-        "desc": "Gaussian noise on all labels (F5)",
-    },
-    "label_corruption": {
-        "config": "configs/ablations.yaml",
-        "pattern": "f[1-5]_*",
-        "desc": "All label corruption (F1-F5)",
-    },
-
-    # ---------- Mechanism decomposition (LDS-only / FDS-only) ----------
-    "corrupt_range_impute_decomp": {
-        "config": "configs/ablations_decomp.yaml",
-        "pattern": "f2_*_impute_*",
-        "desc": "F2 impute LDS/FDS singletons",
-    },
-    "corrupt_range_drop_decomp": {
-        "config": "configs/ablations_decomp.yaml",
-        "pattern": "f2_*_drop_*",
-        "desc": "F2 drop LDS/FDS singletons",
-    },
-    "corrupt_noise_decomp": {
-        "config": "configs/ablations_decomp.yaml",
-        "pattern": "f5_*",
-        "desc": "F5 LDS/FDS singletons",
-    },
-    "mechanism_decomp": {
-        "config": "configs/ablations_decomp.yaml",
+    "smoke": {
+        "config": "configs/smoke.yaml",
         "pattern": None,
-        "desc": "All F2+F5 LDS/FDS mechanism splits",
+        "desc": "One-fold one-epoch ResNet smoke run",
+    },
+    "camera_conditioned": {
+        "config": "configs/cam_cond.yaml",
+        "pattern": None,
+        "desc": "Camera-conditioned ResNet sweep (run with cam_cond_train.py)",
     },
 }
 
@@ -138,13 +48,13 @@ RUN_KEYS = (
     "use_lds", "lds_kernel", "lds_ks", "lds_sigma", "lds_reweight",
     "use_fds", "fds_kernel", "fds_ks", "fds_sigma", "fds_momentum", "fds_start_smooth",
     "bin_width",
-    "freeze_backbone", "corruption",       # F-family + D4 hooks
+    "freeze_backbone",                      # linear-probe hook
     "snapshot_every",                      # trajectory hook
 )
 
 
 # ============================================================
-# YAML loading + path binding
+# YAML loading and path resolution
 # ============================================================
 
 def load_yaml(path: Path | str) -> dict:
@@ -156,42 +66,12 @@ def resolve_path(root: Path, value: str) -> Path:
     return p if p.is_absolute() else root / p
 
 
-def bind_paths(yaml_cfg: dict) -> None:
-    """Mutate `skyfinder.training.config` module-level paths from the YAML's `paths:` block."""
-    root = resolve_path(Path.cwd(), yaml_cfg.get("project_root", ".")).resolve()
-    paths = yaml_cfg["paths"]
-
-    cfg_module.PROJ = root
-    cfg_module.DATA = root / "data"
-    cfg_module.LABELS = resolve_path(root, paths["labels"])
-    cfg_module.SPLITS = resolve_path(root, paths["splits"])
-    cfg_module.IMG_DIR = resolve_path(root, paths["images"])
-    cfg_module.RESULTS_DIR = resolve_path(root, paths["results"])
-    cfg_module.RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-
-    for path in [cfg_module.LABELS, cfg_module.SPLITS, cfg_module.IMG_DIR]:
-        if not path.exists():
-            raise FileNotFoundError(path)
-
-    print("[paths]")
-    print(f"  project: {cfg_module.PROJ}")
-    print(f"  labels:  {cfg_module.LABELS}")
-    print(f"  splits:  {cfg_module.SPLITS}")
-    print(f"  images:  {cfg_module.IMG_DIR}")
-    print(f"  results: {cfg_module.RESULTS_DIR}")
-
-
-def split_count() -> int:
-    return len(json.loads(cfg_module.SPLITS.read_text()))
-
-
-def completed(run_name: str) -> bool:
+def completed(run_name: str, results_dir: Path) -> bool:
     """True iff a results JSON exists for this run under the nested layout.
 
-    (Dual-path lookup was removed in the May 2026 refactor; for old flat-layout
-    runs, migrate first with `skyfinder data-prep --migrate-results`.)
+    (For old flat-layout runs, migrate before checking completion.)
     """
-    path = cfg_module.RESULTS_DIR / subdir_for(run_name) / f"{run_name}.json"
+    path = Path(results_dir) / subdir_for(run_name) / f"{run_name}.json"
     return path.exists()
 
 
@@ -218,12 +98,14 @@ def expand_experiment(exp: dict) -> list[dict]:
         spec["run_name"] = exp["run_name_template"].format(
             name=exp["name"], model=exp["model"], fold=fold, epochs=exp["epochs"],
         )
+        if "method" in exp:
+            spec["method"] = exp["method"]
         specs.append(spec)
     return specs
 
 
 # ============================================================
-# Discovery (used by `skyfinder train --list / --count`)
+# Discovery helpers
 # ============================================================
 
 def enumerate_family(family: str) -> tuple[Path, list[str]]:

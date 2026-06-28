@@ -1,8 +1,7 @@
 """Run the main DIR sweep: each experiment x fold -> run_baseline(cfg).
 
-Paths come from the YAML `paths:` block and are passed INTO each Config (Config-threading).
-We do NOT mutate module-level paths: a dataclass default captures the module constant at
-class-definition time, so module mutation would not reach a freshly-built Config.
+Paths come from the YAML `paths:` block and are passed into each Config, including the
+output directory. This keeps concurrent runs and alternate result roots isolated.
 
 Usage:
     python run_sweep.py --list                         # print the (idx, run_name) matrix
@@ -17,7 +16,6 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from skyfinder.training import config as cfg_module
 from skyfinder.training.config import Config
 from skyfinder.training.families import load_yaml, resolve_path, expand_experiment, completed
 from skyfinder.training.trainer import run_baseline
@@ -27,12 +25,13 @@ def build_matrix(ycfg: dict):
     """Flatten YAML experiments x folds into an ordered list of (run_name, Config)."""
     root = resolve_path(Path.cwd(), ycfg.get("project_root", ".")).resolve()
     p = ycfg["paths"]
+    results_dir = resolve_path(root, p["results"])
     paths = dict(
         labels_path=resolve_path(root, p["labels"]),
         splits_path=resolve_path(root, p["splits"]),
         img_dir=resolve_path(root, p["images"]),
+        results_dir=results_dir,
     )
-    results_dir = resolve_path(root, p["results"])
     matrix = []
     for exp in ycfg["experiments"]:
         for spec in expand_experiment(exp):
@@ -53,14 +52,14 @@ def main():
 
     ycfg = load_yaml(args.config)
     matrix, results_dir = build_matrix(ycfg)
-    cfg_module.RESULTS_DIR = results_dir  # checkpoint I/O reads this at call time
-
     if args.list:
         for i, (name, _) in enumerate(matrix):
             print(f"{i:3d}  {name}")
         return
 
     if args.task_id is not None:
+        if not 0 <= args.task_id < len(matrix):
+            ap.error(f"--task-id must be in [0, {len(matrix) - 1}]")
         sel = [matrix[args.task_id]]
     else:
         sel = matrix
@@ -69,15 +68,18 @@ def main():
         if args.fold is not None:
             sel = [(n, c) for n, c in sel if c.fold == args.fold]
 
-    results_dir.mkdir(parents=True, exist_ok=True)
+    if not args.dry_run:
+        results_dir.mkdir(parents=True, exist_ok=True)
     for name, cfg in sel:
-        if args.skip_existing and completed(name):
-            print(f"[skip] {name} (results exist)")
-            continue
         if args.dry_run:
             print(f"{name}: model={cfg.model} fold={cfg.fold} epochs={cfg.epochs} "
                   f"use_lds={cfg.use_lds} use_fds={cfg.use_fds} "
-                  f"labels={cfg.labels_path.name} splits={cfg.splits_path.name}")
+                  f"labels={cfg.labels_path.name} splits={cfg.splits_path.name} "
+                  f"results={cfg.results_dir}")
+            continue
+        skip_existing = args.skip_existing or ycfg.get("skip_existing", False)
+        if skip_existing and completed(name, results_dir):
+            print(f"[skip] {name} (results exist)")
             continue
         print(f"\n===== {name} =====")
         run_baseline(cfg, save=ycfg.get("save", True))

@@ -1,11 +1,10 @@
-"""Training config dataclass + module-level paths.
+"""Training config dataclass and default repository paths.
 
-`Config` holds every training option (baseline, LDS, FDS, corruption, snapshots).
+`Config` holds every training option (baseline, LDS, FDS, snapshots).
 All LDS/FDS fields default off so existing baseline calls are unchanged.
 
-Paths default to the module-level constants (DATA, LABELS, SPLITS, IMG_DIR), but are
-now also Config fields (`labels_path`, `splits_path`, `img_dir`) so you can inject them
-per-run instead of reassigning module globals:
+Paths default to the repository constants but are Config fields, so each run carries
+its complete input and output locations instead of relying on mutable module globals:
     Config(labels_path=Path("/content/drive/.../labels_with_images.csv"), ...)
 """
 from __future__ import annotations
@@ -42,6 +41,7 @@ class Config:
     labels_path: Path = LABELS
     splits_path: Path = SPLITS
     img_dir: Path = IMG_DIR
+    results_dir: Path = RESULTS_DIR
 
     # LDS (loss-side reweighting; no architecture change)
     use_lds: bool = False
@@ -63,8 +63,26 @@ class Config:
 
     # Ablation hooks
     freeze_backbone: bool = False    # D4: linear probe — train only the regression head
-    corruption: dict | None = None   # F-family: train-label corruption
+    method: str | None = None         # explicit analysis label for non-DIR runs
 
-    # Embedding-trajectory hook (see skyfinder.analysis.extract_trajectory).
+    # Checkpoint-trajectory hook.
     # When >0, dumps state_dict to <run>_ep{N}.pt at epoch 0 and every Nth epoch.
     snapshot_every: int = 0
+
+    def __post_init__(self) -> None:
+        """Normalize path values and reject invalid runs before allocating a model."""
+        for field in ("labels_path", "splits_path", "img_dir", "results_dir"):
+            setattr(self, field, Path(getattr(self, field)))
+        if self.fold < 0:
+            raise ValueError("fold must be non-negative")
+        if self.epochs < 1:
+            raise ValueError("epochs must be at least 1")
+        if self.batch_size < 1:
+            raise ValueError("batch_size must be at least 1")
+        if self.num_workers < 0:
+            raise ValueError("num_workers must be non-negative")
+        if self.lr <= 0 or self.bin_width <= 0:
+            raise ValueError("lr and bin_width must be positive")
+        for name, value in (("train_subset", self.train_subset), ("val_subset", self.val_subset)):
+            if value is not None and value < 1:
+                raise ValueError(f"{name} must be at least 1 when set")
