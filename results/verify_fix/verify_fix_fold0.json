@@ -1,0 +1,42 @@
+{
+  "run_name": "verify_fix_fold0",
+  "config": {
+    "model": "resnet50",
+    "fold": 0,
+    "epochs": 20,
+    "batch_size": 32,
+    "lr": 0.001,
+    "num_workers": 2,
+    "train_subset": null,
+    "val_subset": null,
+    "seed": 0,
+    "run_name": "verify_fix_fold0",
+    "labels_path": "/Users/tingxuanhuang/Desktop/dir-skyfinder/data/labels_with_images.csv",
+    "splits_path": "/Users/tingxuanhuang/Desktop/dir-skyfinder/data/splits/loco_5fold.json",
+    "img_dir": "/Users/tingxuanhuang/Desktop/dir-skyfinder/data/images",
+    "use_lds": false,
+    "lds_kernel": "gaussian",
+    "lds_ks": 5,
+    "lds_sigma": 2.0,
+    "lds_reweight": "sqrt_inv",
+    "use_fds": false,
+    "fds_kernel": "gaussian",
+    "fds_ks": 5,
+    "fds_sigma": 2.0,
+    "fds_momentum": 0.9,
+    "fds_start_smooth": 1,
+    "bin_width": 1.0,
+    "freeze_backbone": false,
+    "corruption": null,
+    "snapshot_every": 0
+  },
+  "final_val": {
+    "overall": 1.0
+  },
+  "val_preds": [
+    1.0
+  ],
+  "val_ys": [
+    2.0
+  ]
+}
