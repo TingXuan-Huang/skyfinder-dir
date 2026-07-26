@@ -1,0 +1,53 @@
+# DIR-on-random control: LDS/FDS under a random split (no camera shift).
+# Supports the report claim that LDS/FDS behave paper-like (help on the imbalanced tail)
+# when there is NO camera distribution shift. Contrast with the LOCO sweep, where the same
+# methods fail to help: this isolates camera-shift as the reason, not a broken DIR setup.
+project_root: "."
+
+paths:
+  labels: "data/labels_with_images.csv"
+  splits: "data/splits/random_5fold.json"
+  images: "data/images"
+  results: "results_random_dir"
+
+save: true
+skip_existing: true
+
+experiments:
+  - name: "lds_resnet50"
+    model: "resnet50"
+    folds: [0, 1, 2, 3, 4]
+    epochs: 50
+    batch_size: 128
+    lr: 0.001
+    num_workers: 4
+    seed: 0
+    use_lds: true
+    lds_reweight: "sqrt_inv"
+    run_name_template: "lds_resnet50_fold{fold}"
+
+  - name: "fds_resnet50"
+    model: "resnet50"
+    folds: [0, 1, 2, 3, 4]
+    epochs: 50
+    batch_size: 128
+    lr: 0.001
+    num_workers: 4
+    seed: 0
+    use_fds: true
+    fds_start_smooth: 1
+    run_name_template: "fds_resnet50_fold{fold}"
+
+  - name: "lds_fds_resnet50"
+    model: "resnet50"
+    folds: [0, 1, 2, 3, 4]
+    epochs: 50
+    batch_size: 128
+    lr: 0.001
+    num_workers: 4
+    seed: 0
+    use_lds: true
+    lds_reweight: "sqrt_inv"
+    use_fds: true
+    fds_start_smooth: 1
+    run_name_template: "lds_fds_resnet50_fold{fold}"

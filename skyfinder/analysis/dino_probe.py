@@ -42,21 +42,28 @@ def extract(net, sub_df, img_dir, device, bs=128):
     return np.concatenate(feats), np.concatenate(ys)
 
 
-def fit_probe(Xtr, ytr, alpha=1.0):
-    """StandardScaler + Ridge — the standard linear probe."""
-    from sklearn.linear_model import Ridge
+def fit_probe(Xtr, ytr, alpha=1.0, alphas=None):
+    """StandardScaler + Ridge — the standard linear probe.
+
+    If alphas is given, use RidgeCV to pick alpha by CV (a fair probe);
+    otherwise fall back to a fixed Ridge(alpha).
+    """
+    from sklearn.linear_model import Ridge, RidgeCV
     from sklearn.preprocessing import StandardScaler
     scaler = StandardScaler().fit(Xtr)
-    ridge = Ridge(alpha=alpha).fit(scaler.transform(Xtr), ytr)
-    return scaler, ridge
+    model = (RidgeCV(alphas=alphas) if alphas is not None else Ridge(alpha=alpha))
+    model.fit(scaler.transform(Xtr), ytr)
+    return scaler, model
 
 
-def run_probe(df, fold, net, img_dir, device) -> dict:
+def run_probe(df, fold, net, img_dir, device, alphas=None) -> dict:
     parts = {s: extract(net, df.iloc[fold[s]].reset_index(drop=True), img_dir, device)
              for s in ("train", "val", "test")}
-    scaler, ridge = fit_probe(*parts["train"])
+    scaler, model = fit_probe(*parts["train"], alphas=alphas)
+    if hasattr(model, "alpha_"):
+        print(f"[fold {fold['fold']}] RidgeCV selected alpha={model.alpha_:g}")
     train_y = df.iloc[fold["train"]]["TempM"].to_numpy()
-    return {s: per_bin_mae(parts[s][1], ridge.predict(scaler.transform(parts[s][0])), train_y)
+    return {s: per_bin_mae(parts[s][1], model.predict(scaler.transform(parts[s][0])), train_y)
             for s in ("val", "test")}
 
 
@@ -66,7 +73,11 @@ def main():
     ap.add_argument("--splits", default="data/splits/loco_5fold.json")
     ap.add_argument("--img-dir", default="data/images")
     ap.add_argument("--variant", default="dinov2_vits14")
+    ap.add_argument("--alphas", default="0.1,1,10,100,1000",
+                    help="comma-separated RidgeCV alpha grid")
     args = ap.parse_args()
+
+    alphas = tuple(float(a) for a in args.alphas.split(","))
 
     df = pd.read_csv(args.labels)
     splits = load_splits(args.splits, args.labels, len(df))
@@ -74,7 +85,7 @@ def main():
     net = load_dino(args.variant, device)
     val_o, test_o = [], []
     for fold in splits:
-        r = run_probe(df, fold, net, Path(args.img_dir), device)
+        r = run_probe(df, fold, net, Path(args.img_dir), device, alphas=alphas)
         val_o.append(r["val"]["overall"])
         test_o.append(r["test"]["overall"])
         print(f"[fold {fold['fold']}] DINOv2+Ridge val={r['val']['overall']:.3f} "

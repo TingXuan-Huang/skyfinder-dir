@@ -1,0 +1,48 @@
+# Generalization-validation (gen-val) model-selection control.
+# Supports the report claim that LOCO conclusions are robust to the val-split design:
+# here the val set holds out entire cameras (genval_5fold.json), so checkpoint/early-stop
+# selection sees camera-generalization signal. If rankings match the main LOCO sweep,
+# selection-on-gen-val did not change the story.
+project_root: "."
+
+paths:
+  labels: "data/labels_with_images.csv"
+  splits: "data/splits/genval_5fold.json"
+  images: "data/images"
+  results: "results_genval"
+
+save: true
+skip_existing: true
+
+experiments:
+  - name: "baseline_resnet50"
+    model: "resnet50"
+    folds: [0, 1, 2, 3, 4]
+    epochs: 50
+    batch_size: 128
+    lr: 0.001
+    num_workers: 4
+    seed: 0
+    run_name_template: "baseline_resnet50_fold{fold}"
+
+  - name: "baseline_vit"
+    model: "vit_b_16"
+    folds: [0, 1, 2, 3, 4]
+    epochs: 50
+    batch_size: 128
+    lr: 0.001
+    num_workers: 4
+    seed: 0
+    run_name_template: "baseline_vit_fold{fold}"
+
+  - name: "fds_resnet50"
+    model: "resnet50"
+    folds: [0, 1, 2, 3, 4]
+    epochs: 50
+    batch_size: 128
+    lr: 0.001
+    num_workers: 4
+    seed: 0
+    use_fds: true
+    fds_start_smooth: 1
+    run_name_template: "fds_resnet50_fold{fold}"

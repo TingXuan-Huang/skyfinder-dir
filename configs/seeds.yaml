@@ -1,0 +1,81 @@
+# Multi-seed runs for headline confidence intervals.
+# Supports the report claim that headline MAE numbers are reported with seed-variance
+# CIs: these seed-1 / seed-2 runs add to the existing seed-0 main runs (configs/main.yaml)
+# to reach 3 seeds per config for baseline_resnet50, fds_resnet50, and baseline_vit.
+project_root: "."
+
+paths:
+  labels: "data/labels_with_images.csv"
+  splits: "data/splits/loco_5fold.json"
+  images: "data/images"
+  results: "results_seeds"
+
+save: true
+skip_existing: true
+
+experiments:
+  # --- seed 1 ---
+  - name: "baseline_resnet50_s1"
+    model: "resnet50"
+    folds: [0, 1, 2, 3, 4]
+    epochs: 50
+    batch_size: 128
+    lr: 0.001
+    num_workers: 4
+    seed: 1
+    run_name_template: "baseline_resnet50_s1_fold{fold}"
+
+  - name: "fds_resnet50_s1"
+    model: "resnet50"
+    folds: [0, 1, 2, 3, 4]
+    epochs: 50
+    batch_size: 128
+    lr: 0.001
+    num_workers: 4
+    seed: 1
+    use_fds: true
+    fds_start_smooth: 1
+    run_name_template: "fds_resnet50_s1_fold{fold}"
+
+  - name: "baseline_vit_s1"
+    model: "vit_b_16"
+    folds: [0, 1, 2, 3, 4]
+    epochs: 50
+    batch_size: 128
+    lr: 0.001
+    num_workers: 4
+    seed: 1
+    run_name_template: "baseline_vit_s1_fold{fold}"
+
+  # --- seed 2 ---
+  - name: "baseline_resnet50_s2"
+    model: "resnet50"
+    folds: [0, 1, 2, 3, 4]
+    epochs: 50
+    batch_size: 128
+    lr: 0.001
+    num_workers: 4
+    seed: 2
+    run_name_template: "baseline_resnet50_s2_fold{fold}"
+
+  - name: "fds_resnet50_s2"
+    model: "resnet50"
+    folds: [0, 1, 2, 3, 4]
+    epochs: 50
+    batch_size: 128
+    lr: 0.001
+    num_workers: 4
+    seed: 2
+    use_fds: true
+    fds_start_smooth: 1
+    run_name_template: "fds_resnet50_s2_fold{fold}"
+
+  - name: "baseline_vit_s2"
+    model: "vit_b_16"
+    folds: [0, 1, 2, 3, 4]
+    epochs: 50
+    batch_size: 128
+    lr: 0.001
+    num_workers: 4
+    seed: 2
+    run_name_template: "baseline_vit_s2_fold{fold}"

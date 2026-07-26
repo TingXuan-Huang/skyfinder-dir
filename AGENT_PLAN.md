@@ -142,3 +142,55 @@ python -m skyfinder.analysis.aggregate --results results_cam_cond --split test |
 - `results/_analysis/{c1,c2}` present; fusion + dino summaries captured.
 - All Phase-E tables/figures in `analysis_outputs/` + `figures/`.
 - `SUMMARY.md` written; artifacts returned per §7.
+
+## Phase F — report-completion experiments (2026 follow-up)
+Append-only follow-up. Same conventions as §0 (`cd $REPO`, `gpu_run`, `submit_sweep.sh`,
+**SUBMIT → WAIT → VERIFY**). Run in dependency order; the gen-val split must exist before
+any gen-val sweep. All login-node steps need internet; GPU steps are SLURM jobs.
+
+```bash
+# F0 gen-val split (login node — defines val from held-out cameras, not in-camera frames)
+python data/splits_genval.py                                   # -> data/splits/genval_5fold.json
+ls data/splits/genval_5fold.json >/dev/null                    # VERIFY before any gen-val sweep
+
+# F1 multi-seed headline CIs (re-runs the main grid across seeds for bootstrap CIs)
+bash submit_sweep.sh 2 configs/seeds.yaml                      # WAIT for the whole array; resubmit missing as in Phase A
+gpu_run "python infer_test.py --config configs/seeds.yaml"     # WAIT  -> results_seeds/*/*.json gain test_preds
+
+# F2 gen-val selection control (model selection on held-out-camera val instead of in-camera val)
+bash submit_sweep.sh 2 configs/main_genval.yaml               # needs F0; WAIT; resubmit missing
+gpu_run "python infer_test.py --config configs/main_genval.yaml"  # WAIT  -> results_genval/*/*.json
+# CAVEAT: gen-val ALSO removes those cameras from training, so results_genval vs the
+# in-camera-val-selected results/ baseline differ by selection AND training-set, not selection alone.
+
+# F3 DIR-on-random control (do LDS/FDS still help when val~=test, i.e. no camera shift?)
+python data/splits_random.py                                   # if not already present (see §5 D1)
+bash submit_sweep.sh 2 configs/main_random_dir.yaml           # WAIT; resubmit missing
+gpu_run "python infer_test.py --config configs/main_random_dir.yaml"  # WAIT  -> results_random_dir/*/*.json
+
+# F4 feature-level fusion (code already built; CNN env var picks the checkpoint)
+sbatch slurm/fusion.slurm                                      # WAIT; default CNN=fds_resnet50; override: sbatch --export=ALL,CNN=baseline_resnet50 slurm/fusion.slurm
+
+# F5 frozen DINOv2 probe with tuned alpha (pre-cache weights on login node — see gotcha #4)
+sbatch slurm/dino_probe.slurm                                  # WAIT
+
+# F6 residual-to-climatology probe (predict residual over the per-cam/month climatology)
+sbatch slurm/residual.slurm                                    # WAIT
+
+# F7 metadata + solar ablation (CPU; now also emits the time_location_solar variant)
+python -u -m skyfinder.analysis.metadata_ablations --out results/_analysis/metadata_ablations.json
+
+# F8 ViT symmetry (no new code — mirror the ResNet bootstrap/per-camera on the ViT baseline)
+python -m skyfinder.analysis.bootstrap --model vit_b_16 --split test --bin overall
+python -m skyfinder.analysis.bootstrap --model vit_b_16 --split test --bin medium
+python -m skyfinder.analysis.bootstrap --model vit_b_16 --split test --bin few
+python -m skyfinder.analysis.per_camera --cnn baseline_vit
+
+# F9 report figures
+python -m skyfinder.analysis.figures_report --cnn baseline_resnet50 --results results --out figures
+```
+**ACCEPTANCE:** new artifact dirs `results_seeds/`, `results_genval/`, `results_random_dir/`
+(each `*/*.json` with `val_preds`+`test_preds`); fusion/dino/residual summaries written
+(`results/_analysis/` fusion + dino_probe + residual JSONs); `results/_analysis/metadata_ablations.json`
+present and containing the `time_location_solar` variant; ViT bootstrap (overall/medium/few) +
+`per_camera --cnn baseline_vit` captured; report figures in `figures/`.
